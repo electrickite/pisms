@@ -1,0 +1,21 @@
+[project]
+name = "pisms"
+version = "0.1.0"
+description = "Send SMS messages from a Raspberry Pi using serial AT commands"
+readme = "README.md"
+requires-python = ">=3.7"
+dependencies = [
+    "pyserial",
+    "python-messaging",
+    "RPi.GPIO",
+]
+
+[project.scripts]
+pisms = "pisms:run"
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["pisms"]
