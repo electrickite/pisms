@@ -44,6 +44,7 @@ def _surrogatepair(match):
 
 class App:
     def __init__(self):
+        self.cmd = None
         self.number = None
         self.ser = None
         self.powered = False
@@ -106,20 +107,26 @@ class App:
 
         send = subparsers.add_parser('send', help='Send SMS message. The message text is read from stdin.')
         send.add_argument("number", help="Recipient phone number")
-        send.set_defaults(command=self.send)
+        send.set_defaults(cmd=self.send)
 
         recv = subparsers.add_parser('recv', help='Check for received SMS messages.')
         recv.add_argument("-a", "--maxage", type=int, default=1, help="Maximum age of stored message fragments (hours)")
         del_opts = recv.add_mutually_exclusive_group()
         del_opts.add_argument("-p", "--preserve", action='store_true', help="Do not delete listed messages from SIM memory")
         del_opts.add_argument("-D", "--deleteall", action='store_true', help="Delete all received messages from SIM memory")
-        recv.set_defaults(command=self.receive)
+        recv.set_defaults(cmd=self.receive)
 
         recv = subparsers.add_parser('clear', help='Clear all messages from SIM.')
-        recv.set_defaults(command=self.clear)
+        recv.set_defaults(cmd=self.clear)
 
         recv = subparsers.add_parser('info', help='Query modem information.')
-        recv.set_defaults(command=self.modem_info)
+        recv.set_defaults(cmd=self.modem_info)
+
+        at = subparsers.add_parser('at', help='Send AT command.')
+        at.add_argument("command", help="Raw AT command")
+        at.add_argument("back", nargs='?', default="OK", help="Expected success response (default: OK)")
+        at.add_argument("timeout", type=int, nargs='?', default=2, help="Maximum time to wait for response (seconds)")
+        at.set_defaults(cmd=self.at)
 
         parser.parse_args(namespace=self)
         log.basicConfig(level=getattr(log, self.log.upper()))
@@ -168,7 +175,7 @@ class App:
         self.ser.write((command+'\r\n').encode())
         self.ser.timeout = timeout
         rec_buff = ''
-        rec_buff = self.ser.read_until(expected=back)
+        rec_buff = self.ser.read_until(expected=back.encode())
         response = rec_buff.decode()
         if back not in response:
             if not quiet:
@@ -324,6 +331,11 @@ class App:
         _, res = self.at_command("AT+COPS?", "OK", 1)
         print(res)
 
+    def at(self):
+        print(self.command)
+        _, res = self.at_command(self.command, self.back, self.timeout)
+        print(res)
+
     def cleanup(self):
         log.info("Closing serial port and cleaning up GPIO")
         if self.ser != None:
@@ -338,7 +350,7 @@ class App:
         self.setup()
 
         try:
-            status = 0 if self.command() else 1
+            status = 0 if self.cmd() else 1
         finally:
             self.cleanup()
         return status
