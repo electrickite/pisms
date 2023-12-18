@@ -25,11 +25,14 @@ import json
 import logging as log
 import re
 import serial
+import signal
+import subprocess
 import sys
 import time
 from datetime import datetime, timedelta
 from messaging.sms import SmsSubmit
 from messaging.sms import SmsDeliver
+
 
 _nonbmp = re.compile(r'[\U00010000-\U0010FFFF]')
 
@@ -40,6 +43,9 @@ def _surrogatepair(match):
     return (
         chr(int.from_bytes(encoded[:2], 'little')) +
         chr(int.from_bytes(encoded[2:], 'little')))
+
+def _handle_exit(sig, frame):
+    raise(SystemExit)
 
 
 class App:
@@ -116,11 +122,15 @@ class App:
         del_opts.add_argument("-D", "--deleteall", action='store_true', help="Delete all received messages from SIM memory")
         recv.set_defaults(cmd=self.receive)
 
-        recv = subparsers.add_parser('clear', help='Clear all messages from SIM.')
-        recv.set_defaults(cmd=self.clear)
+        mon = subparsers.add_parser('monitor', help='Listen for new SMS notifications.')
+        mon.add_argument("-c", "--command", help="Run shell command for each notification")
+        mon.set_defaults(cmd=self.monitor)
 
-        recv = subparsers.add_parser('info', help='Query modem information.')
-        recv.set_defaults(cmd=self.modem_info)
+        clr = subparsers.add_parser('clear', help='Clear all messages from SIM.')
+        clr.set_defaults(cmd=self.clear)
+
+        info = subparsers.add_parser('info', help='Query modem information.')
+        info.set_defaults(cmd=self.modem_info)
 
         at = subparsers.add_parser('at', help='Send AT command.')
         at.add_argument("command", help="Raw AT command")
@@ -332,9 +342,27 @@ class App:
         print(res)
 
     def at(self):
+        log.info("Sending specified AT command")
         print(self.command)
         _, res = self.at_command(self.command, self.back, self.timeout)
         print(res)
+
+    def monitor(self):
+        log.info("Listening for +CMTI messages on %s" % self.port)
+        print("Listening for +CMTI messages on %s" % self.port)
+        while True:
+            line = self.ser.readline().decode()
+            log.debug("Read line: %s", line.rstrip())
+            if "+CMTI:" in line:
+                log.info("+CMTI received")
+                print("%s New message received" % datetime.now())
+                if self.command:
+                    log.info("Running command: %s", self.command)
+                    p = subprocess.run(self.command, shell=True, capture_output=True)
+                    log.debug("Return code: %d", p.returncode)
+                    log.debug("stdout: %s", p.stdout.decode())
+                    log.debug("stderr: %s", p.stderr.decode())
+        return True
 
     def cleanup(self):
         log.info("Closing serial port and cleaning up GPIO")
@@ -351,11 +379,14 @@ class App:
 
         try:
             status = 0 if self.cmd() else 1
+        except (KeyboardInterrupt, SystemExit):
+            log.info("Received interrupt. Exiting...")
         finally:
             self.cleanup()
         return status
 
 
 def run():
+    signal.signal(signal.SIGTERM, _handle_exit)
     app = App()
     return app.run()
